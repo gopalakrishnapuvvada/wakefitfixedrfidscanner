@@ -1,0 +1,98 @@
+# UAIM Identification Device Adapter Platform Configuration
+# Retaining exclusively SICK Fixed UHF RFID Reader and CipherLab RS38 Rugged Android Mobile Computer
+
+server:
+  host: 0.0.0.0
+  port: 8000
+
+devices:
+  # 1. SICK RFU630 Fixed UHF RFID Reader
+  - device_id: RFID-001
+    name: Pallet Gate SICK RFU630
+    type: RFID_FIXED
+    adapter: sick_rfu630
+    vendor: SICK
+    model: RFU630
+    connection_type: ETHERNET
+    host: 192.168.1.246
+    port: 2112
+    station_id: PALLET-GATE-01
+    enabled: true
+    
+    # Operation Mode: AUTOSCAN (Continuous) vs EVENT_BASED (Start/Stop Gate Trigger)
+    fixed_mode: AUTOSCAN
+
+    # Commissioning Formatting & Filtering
+    formatting:
+      format_mode: HEX_CLEAN
+      prefix: ""
+      suffix: ""
+      strip_prefix: ""
+      epc_filter_prefix: ""
+      min_rssi_dbm: null
+      target_antennas: [1, 2, 3, 4]
+
+    reconnect:
+      enabled: true
+      initial_delay: 1.0
+      max_delay: 30.0
+      backoff_factor: 2.0
+      jitter: true
+
+    deduplication:
+      enabled: true
+      window_ms: 500
+
+    configuration:
+      auto_start_on_connect: true
+      enable_heartbeat: true
+      heartbeat_interval_sec: 5.0
+      raw_logging: true
+
+  # 2. CipherLab RS38 Rugged Android Mobile Computer (AS38N8RF4NSG1)
+  - device_id: HH-001
+    name: CipherLab RS38 Handheld Computer
+    type: RFID_HANDHELD
+    adapter: handheld
+    vendor: CipherLab
+    model: RS38 (AS38N8RF4NSG1)
+    connection_type: HID_KEYBOARD
+    host: 192.168.88.6
+    port: 9001
+    station_id: PACKING-01
+    enabled: true
+
+    # Handheld Mode: KEYSTROKE_EMULATION, WEBSOCKET_PUSH, TCP_STREAM, HTTP_WEBHOOK
+    handheld_mode: KEYSTROKE_EMULATION
+
+    # Keyboard Wedge Framing Configuration
+    scanner:
+      rfid_prefix: "\x03"   # ASCII 3 (End of Text ETX)
+      qr_prefix: "\x02"     # ASCII 2 (Start of Text STX)
+      terminator: "\x0D"    # ASCII 13 (Carriage Return / Enter)
+      inter_key_timeout_ms: 50
+      max_scan_length: 512
+
+    # Authoritative Business Classification Rules
+    classification:
+      material_qr_prefixes: ["100"]
+      work_order_qr_prefixes: ["200", "400"]
+      rfid_hex_validation: true
+
+    formatting:
+      format_mode: HEX_CLEAN
+      prefix: ""
+      suffix: ""
+      strip_prefix: ""
+
+    reconnect:
+      enabled: false
+
+    deduplication:
+      enabled: true
+      window_ms: 500
+
+    configuration:
+      transport: HID
+      default_type: RFID_EPC
+

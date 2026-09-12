@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uaim-device-adapter"
+version = "1.0.0"
+description = "UAIM Production-Grade Identification Device Adapter Framework for SICK RFU630, RFID Handhelds, and Barcode Scanners"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "UAIM Engineering Team" }
+]
+dependencies = [
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
+    "websockets>=12.0",
+    "pyyaml>=6.0.1",
+    "aiofiles>=23.2.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0"
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

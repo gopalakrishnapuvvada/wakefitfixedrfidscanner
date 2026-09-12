@@ -1,0 +1,27 @@
+====================================================================
+  UAIM IDENTIFICATION DEVICE ADAPTER - PORTABLE DESKTOP PACKAGE
+====================================================================
+
+HOW TO RUN ON ANY WINDOWS DESKTOP (NO PYTHON REQUIRED):
+
+1. LAUNCH APPLICATION:
+   - Double-click 'start_server.bat'
+   - The server will start and automatically open the Web UI at:
+     http://localhost:8000
+
+2. OFFLINE TESTING WITHOUT PHYSICAL HARDWARE:
+   - In a separate window, double-click 'launch_hardware_simulator.bat'
+   - The simulator emulates SICK RFU630 (port 2111), Handheld RFID (port 9001),
+     and Barcode Scanners (port 9002).
+   - In the Web UI at http://localhost:8000, click 'Connect' on RFID-001,
+     or use the Interactive Simulator buttons to inject single tags or pallet bursts.
+
+3. AUTOMATED VERIFICATION:
+   - While 'start_server.bat' is running, double-click 'run_smoke_test.bat'.
+   - It will verify REST APIs, WebSockets, simulated scans, and metrics.
+
+4. CONFIGURATION FOR REAL INDUSTRIAL HARDWARE:
+   - Open 'config.yaml' in Notepad to configure your real reader IP & port:
+     Example: change host '127.0.0.1' to your physical SICK RFU630 IP (e.g. 192.168.10.50).
+
+====================================================================
