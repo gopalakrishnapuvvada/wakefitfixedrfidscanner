@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from typing import Any, Optional
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from uaim_device.adapters.handheld.classifier import RS38ScanClassifier
@@ -366,6 +366,68 @@ async def stream_scans_sse(
             "X-Accel-Buffering": "no",
         }
     )
+
+
+class WebhookConfigRequest(BaseModel):
+    enabled: bool = Field(True, description="Enable or disable the webhook forwarder")
+    url: str = Field(..., description="Destination webhook URL (e.g. http://127.0.0.1:8000/post_fixed_rfid or external backend)")
+    only_tag: bool = Field(True, description="If True, sends {'rfid_tag': '...'} alone")
+    payload_field: str = Field("rfid_tag", description="JSON field name for the RFID tag")
+
+
+@router.post("/post_fixed_rfid")
+async def api_receive_post_fixed_rfid(request: Request):
+    """
+    Direct receiver endpoint for fixed RFID tag POST requests.
+    Accepts JSON body: {"rfid_tag": "..."} or raw text.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        body = await request.body()
+        data = {"raw": body.decode("utf-8", errors="ignore")}
+    logger.info(f"[POST_FIXED_RFID] Received tag payload: {data}")
+    return {"status": "success", "received": data}
+
+
+@router.get("/webhook/config")
+async def get_webhook_config():
+    """Retrieve current HTTP webhook forwarder status and settings."""
+    from uaim_device.processing.dispatcher import HttpWebhookForwarder
+    forwarders = [c for c in GLOBAL_DEVICE_MANAGER.dispatcher._consumers if isinstance(c, HttpWebhookForwarder)]
+    if not forwarders:
+        return {"configured": False, "enabled": False}
+    f = forwarders[0]
+    return {
+        "configured": True,
+        "enabled": f.enabled,
+        "url": f.target_url,
+        "only_tag": f.only_tag,
+        "payload_field": f.payload_field
+    }
+
+
+@router.post("/webhook/config")
+async def configure_webhook(req: WebhookConfigRequest):
+    """
+    Configure or update the HTTP webhook forwarder at runtime without restarting the server.
+    """
+    from uaim_device.processing.dispatcher import HttpWebhookForwarder
+    for c in list(GLOBAL_DEVICE_MANAGER.dispatcher._consumers):
+        if isinstance(c, HttpWebhookForwarder):
+            GLOBAL_DEVICE_MANAGER.dispatcher.remove_consumer(c)
+
+    if req.enabled and req.url:
+        forwarder = HttpWebhookForwarder(
+            target_url=req.url,
+            enabled=req.enabled,
+            only_tag=req.only_tag,
+            payload_field=req.payload_field
+        )
+        GLOBAL_DEVICE_MANAGER.dispatcher.add_consumer(forwarder)
+        logger.info(f"Updated HTTP Webhook Forwarder target to: {req.url} (only_tag={req.only_tag})")
+        return {"status": "success", "message": f"Webhook forwarder configured to: {req.url}"}
+    return {"status": "disabled", "message": "Webhook forwarder disabled"}
 
 
 @router.post("/devices/{device_id}/command")

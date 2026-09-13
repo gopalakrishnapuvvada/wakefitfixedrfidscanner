@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 import sys
 from typing import Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -181,6 +181,27 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(GLOBAL_DEVICE_MANAGER.start_all())
     logger.info(f"Loaded {len(raw_devices)} devices into pipeline.")
 
+    # Load and register optional HTTP Webhook Forwarder from config.yaml
+    cfg_file = find_config_file()
+    if cfg_file and cfg_file.exists():
+        try:
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                cfg_data = yaml.safe_load(f) or {}
+                wh = cfg_data.get("webhook", {})
+                if wh.get("enabled", False) and wh.get("url"):
+                    from uaim_device.processing.dispatcher import HttpWebhookForwarder
+                    forwarder = HttpWebhookForwarder(
+                        target_url=wh["url"],
+                        enabled=True,
+                        only_tag=wh.get("only_tag", True),
+                        payload_field=wh.get("payload_field", "rfid_tag"),
+                        timeout_sec=float(wh.get("timeout_sec", 3.0))
+                    )
+                    GLOBAL_DEVICE_MANAGER.dispatcher.add_consumer(forwarder)
+                    logger.info(f"Registered automatic HTTP Webhook Forwarder to: {wh['url']}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize webhook forwarder: {e}")
+
     yield
 
     # Shutdown
@@ -221,6 +242,21 @@ async def serve_ui():
         with open(html_file, "r", encoding="utf-8") as f:
             return f.read()
     return "<h1>UAIM Device Adapter Framework Online</h1>"
+
+
+@app.post("/post_fixed_rfid")
+async def receive_post_fixed_rfid(request: Request):
+    """
+    Receiver endpoint for fixed RFID tag POST requests.
+    Accepts JSON body: {"rfid_tag": "..."} or raw text.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        body = await request.body()
+        data = {"raw": body.decode("utf-8", errors="ignore")}
+    logger.info(f"[POST_FIXED_RFID] Received tag payload: {data}")
+    return {"status": "success", "received": data}
 
 
 @app.websocket("/ws/events")

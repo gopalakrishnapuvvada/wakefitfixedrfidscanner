@@ -5,6 +5,13 @@ server:
   host: 0.0.0.0
   port: 8000
 
+# Webhook Forwarder: Automatically POSTs RFID tag to your backend server the instant it is scanned
+webhook:
+  enabled: true
+  url: "http://127.0.0.1:8000/post_fixed_rfid"
+  only_tag: true
+  payload_field: "rfid_tag"   # Sends: {"rfid_tag": "E2801191A50400738D618D4E"}
+
 devices:
   # 1. SICK RFU630 Fixed UHF RFID Reader (Network TCP/IP)
   - device_id: RFID-001

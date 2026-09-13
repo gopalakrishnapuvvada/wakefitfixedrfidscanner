@@ -1,10 +1,11 @@
-"""Pluggable Event Dispatcher and Consumer architecture."""
-
 import asyncio
 from abc import ABC, abstractmethod
+import json
 import logging
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Optional
+import urllib.request
 from uaim_device.core.events import IdentificationEvent
+from uaim_device.core.models import EventType
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,72 @@ class MockKafkaConsumer(EventConsumer):
         if len(self.published_events) > 500:
             self.published_events.pop(0)
         logger.debug(f"[Kafka:{self.topic}] Emitted message key={event.device_id} payload={event.identifier}")
+
+
+class HttpWebhookForwarder(EventConsumer):
+    """
+    Asynchronously forwards scanned RFID tags directly to an external HTTP webhook API.
+    
+    Operates in a detached background task to ensure zero impact on reader read latency.
+    """
+
+    def __init__(
+        self,
+        target_url: str = "http://127.0.0.1:8000/post_fixed_rfid",
+        enabled: bool = True,
+        only_tag: bool = True,
+        payload_field: str = "rfid_tag",
+        timeout_sec: float = 3.0
+    ) -> None:
+        self.target_url = target_url
+        self.enabled = enabled
+        self.only_tag = only_tag
+        self.payload_field = payload_field
+        self.timeout_sec = timeout_sec
+
+    async def consume(self, event: IdentificationEvent) -> None:
+        if not self.enabled or not self.target_url:
+            return
+        if event.event_type != EventType.IDENTIFICATION:
+            return
+
+        tag_value = event.identifier
+        if self.only_tag:
+            payload = {
+                self.payload_field: tag_value
+            }
+        else:
+            payload = {
+                self.payload_field: tag_value,
+                "epc": tag_value,
+                "tag": tag_value,
+                "device_id": event.device_id,
+                "station_id": event.station_id,
+                "antenna_id": event.antenna_id,
+                "rssi": event.rssi,
+                "timestamp": event.timestamp.isoformat()
+            }
+
+        # Fire and forget without blocking the event pipeline
+        asyncio.create_task(self._send_post(self.target_url, payload))
+
+    async def _send_post(self, url: str, payload: dict[str, Any]) -> None:
+        try:
+            def _sync_post():
+                data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=data,
+                    headers={"Content-Type": "application/json", "User-Agent": "UAIM-RFID-Adapter"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
+                    return resp.status
+
+            status = await asyncio.to_thread(_sync_post)
+            logger.info(f"Successfully posted RFID tag to {url} (HTTP {status}): {payload}")
+        except Exception as e:
+            logger.warning(f"Failed to post RFID tag to {url}: {e}")
 
 
 class EventDispatcher:
