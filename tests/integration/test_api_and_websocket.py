@@ -120,3 +120,53 @@ async def test_read_cycle_api_endpoints():
         res_end = await client.post(f"/api/v1/devices/{dev_id}/read-cycle/complete")
         assert res_end.status_code == 200
         assert res_end.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_scans_rest_endpoints():
+    import asyncio
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Simulate a tag scan
+        test_epc = "E2801160600002159B36A999"
+        await client.post("/api/v1/devices/RFID-001/simulate-scan", json={
+            "identifier": test_epc,
+            "identifier_type": "RFID_EPC",
+            "rssi": -51.0,
+            "antenna_id": 2
+        })
+
+        # 1. Test /api/v1/scans/latest
+        res_latest = await client.get("/api/v1/scans/latest")
+        assert res_latest.status_code == 200
+        data_latest = res_latest.json()
+        assert data_latest["status"] == "success"
+        assert data_latest["data"]["identifier"] == test_epc
+        assert data_latest["data"]["epc"] == test_epc
+        assert data_latest["data"]["antenna_id"] == 2
+        assert data_latest["data"]["rssi"] == -51.0
+
+        # 2. Test /api/v1/scans (list)
+        res_list = await client.get("/api/v1/scans?limit=10")
+        assert res_list.status_code == 200
+        data_list = res_list.json()
+        assert data_list["status"] == "success"
+        assert data_list["total"] >= 1
+        assert any(s["identifier"] == test_epc for s in data_list["data"])
+
+        # 3. Test /api/v1/scans/next (long-polling with concurrent scan)
+        async def trigger_scan_delayed():
+            await asyncio.sleep(0.05)
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                await c.post("/api/v1/devices/RFID-001/simulate-scan", json={
+                    "identifier": "E2801160600002159B36ANEXT",
+                    "identifier_type": "RFID_EPC",
+                    "rssi": -47.0
+                })
+
+        asyncio.create_task(trigger_scan_delayed())
+        res_next = await client.get("/api/v1/scans/next?timeout=2.0")
+        assert res_next.status_code == 200
+        data_next = res_next.json()
+        assert data_next["status"] == "success"
+        assert data_next["data"]["identifier"] == "E2801160600002159B36ANEXT"

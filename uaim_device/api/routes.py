@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from uaim_device.adapters.handheld.classifier import RS38ScanClassifier
 from uaim_device.api.websocket import WS_MANAGER
@@ -20,10 +21,39 @@ from uaim_device.core.models import (
     ReaderMode,
 )
 from uaim_device.metrics.metrics import GLOBAL_METRICS
+from uaim_device.processing.dispatcher import EventConsumer
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class ScanBroadcastHub(EventConsumer):
+    """Event consumer that fans out scan events to asynchronous HTTP subscribers."""
+
+    def __init__(self) -> None:
+        self._subscribers: set[asyncio.Queue[IdentificationEvent]] = set()
+
+    def subscribe(self) -> asyncio.Queue[IdentificationEvent]:
+        q: asyncio.Queue[IdentificationEvent] = asyncio.Queue(maxsize=100)
+        self._subscribers.add(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue[IdentificationEvent]) -> None:
+        self._subscribers.discard(q)
+
+    async def consume(self, event: IdentificationEvent) -> None:
+        if event.event_type not in (EventType.IDENTIFICATION, EventType.UNKNOWN_SCAN):
+            return
+        for q in list(self._subscribers):
+            try:
+                q.put_nowait(event)
+            except (asyncio.QueueFull, Exception):
+                pass
+
+
+SCAN_BROADCAST_HUB = ScanBroadcastHub()
+GLOBAL_DEVICE_MANAGER.dispatcher.add_consumer(SCAN_BROADCAST_HUB)
 
 
 class RawScanRequest(BaseModel):
@@ -171,6 +201,171 @@ async def get_device_events(device_id: str, limit: int = Query(50, ge=1, le=500)
     """Retrieve recent normalized events observed by this device."""
     events = [e for e in GLOBAL_DEVICE_MANAGER.recent_events if e.device_id == device_id]
     return events[-limit:]
+
+
+@router.get("/scans/latest")
+@router.get("/tags/latest")
+async def get_latest_scan(device_id: Optional[str] = Query(None, description="Filter by device ID (e.g. RFID-001)")):
+    """
+    Retrieve the most recently scanned RFID tag or barcode.
+    
+    Returns HTTP 200 with the latest scan details, or status 'no_scans' if nothing has been scanned yet.
+    """
+    scans = [
+        e for e in GLOBAL_DEVICE_MANAGER.recent_events
+        if e.event_type in (EventType.IDENTIFICATION, EventType.UNKNOWN_SCAN)
+        and (device_id is None or e.device_id == device_id)
+    ]
+    if not scans:
+        return {
+            "status": "no_scans",
+            "message": "No scans recorded yet. Scan a tag with SICK RFU630 or handheld scanner.",
+            "data": None
+        }
+
+    latest = scans[-1]
+    is_epc = "EPC" in latest.identifier_type.value or latest.identifier_type == IdentifierType.RFID_EPC
+    return {
+        "status": "success",
+        "data": {
+            "identifier": latest.identifier,
+            "identifier_type": latest.identifier_type.value,
+            "epc": latest.identifier if is_epc else None,
+            "antenna_id": latest.antenna_id,
+            "rssi": latest.rssi,
+            "device_id": latest.device_id,
+            "device_type": latest.device_type.value,
+            "station_id": latest.station_id,
+            "reader_mode": latest.reader_mode.value if latest.reader_mode else None,
+            "timestamp": latest.timestamp.isoformat(),
+            "event_id": latest.event_id,
+            "metadata": latest.metadata,
+        }
+    }
+
+
+@router.get("/scans")
+@router.get("/tags")
+async def list_recent_scans(
+    limit: int = Query(50, ge=1, le=500, description="Number of recent scans to return"),
+    device_id: Optional[str] = Query(None, description="Filter by device ID (e.g. RFID-001)"),
+    identifier_type: Optional[str] = Query(None, description="Filter by identifier type (e.g. RFID_EPC)")
+):
+    """
+    List recent scanned tags in reverse chronological order (newest first).
+    """
+    scans = [
+        e for e in GLOBAL_DEVICE_MANAGER.recent_events
+        if e.event_type in (EventType.IDENTIFICATION, EventType.UNKNOWN_SCAN)
+        and (device_id is None or e.device_id == device_id)
+        and (identifier_type is None or e.identifier_type.value == identifier_type)
+    ]
+    scans_subset = scans[-limit:]
+    scans_subset.reverse()
+
+    formatted = [
+        {
+            "event_id": e.event_id,
+            "identifier": e.identifier,
+            "identifier_type": e.identifier_type.value,
+            "epc": e.identifier if ("EPC" in e.identifier_type.value or e.identifier_type == IdentifierType.RFID_EPC) else None,
+            "antenna_id": e.antenna_id,
+            "rssi": e.rssi,
+            "device_id": e.device_id,
+            "station_id": e.station_id,
+            "timestamp": e.timestamp.isoformat(),
+        }
+        for e in scans_subset
+    ]
+    return {
+        "status": "success",
+        "total": len(formatted),
+        "data": formatted
+    }
+
+
+@router.get("/scans/next")
+async def wait_for_next_scan(
+    timeout: float = Query(30.0, ge=1.0, le=120.0, description="Max seconds to wait for a scan"),
+    device_id: Optional[str] = Query(None, description="Filter by device ID (e.g. RFID-001)")
+):
+    """
+    Long-polling API: Holds the HTTP request open until a new RFID tag is scanned.
+    
+    Returns HTTP 200 immediately upon scan detection, or status 'timeout' after timeout expires.
+    """
+    queue = SCAN_BROADCAST_HUB.subscribe()
+    start_time = time.time()
+    try:
+        while True:
+            remaining = timeout - (time.time() - start_time)
+            if remaining <= 0:
+                return {
+                    "status": "timeout",
+                    "message": f"No scan detected within {timeout} seconds",
+                    "data": None
+                }
+
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if device_id is None or event.device_id == device_id:
+                    is_epc = "EPC" in event.identifier_type.value or event.identifier_type == IdentifierType.RFID_EPC
+                    return {
+                        "status": "success",
+                        "data": {
+                            "identifier": event.identifier,
+                            "identifier_type": event.identifier_type.value,
+                            "epc": event.identifier if is_epc else None,
+                            "antenna_id": event.antenna_id,
+                            "rssi": event.rssi,
+                            "device_id": event.device_id,
+                            "station_id": event.station_id,
+                            "timestamp": event.timestamp.isoformat(),
+                            "event_id": event.event_id,
+                        }
+                    }
+            except asyncio.TimeoutError:
+                return {
+                    "status": "timeout",
+                    "message": f"No scan detected within {timeout} seconds",
+                    "data": None
+                }
+    finally:
+        SCAN_BROADCAST_HUB.unsubscribe(queue)
+
+
+@router.get("/scans/stream")
+async def stream_scans_sse(
+    device_id: Optional[str] = Query(None, description="Filter by device ID")
+):
+    """
+    Server-Sent Events (SSE) HTTP stream.
+    
+    Streams live scan events in real time over standard HTTP. Visible directly in browser DevTools Network tab.
+    """
+    async def sse_generator():
+        queue = SCAN_BROADCAST_HUB.subscribe()
+        try:
+            yield ": connected\n\n"
+            while True:
+                event = await queue.get()
+                if device_id is None or event.device_id == device_id:
+                    data = event.model_dump_json()
+                    yield f"event: scan\ndata: {data}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            SCAN_BROADCAST_HUB.unsubscribe(queue)
+
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @router.post("/devices/{device_id}/command")

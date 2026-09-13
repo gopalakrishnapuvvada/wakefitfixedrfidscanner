@@ -179,6 +179,13 @@ def run_smoke_test(host: str = "127.0.0.1", port: int = 8000) -> bool:
     else:
         checks.append(("Prometheus Metrics (/metrics)", "FAIL", f"Status: {status}"))
 
+    # 9. Scans REST API (/api/v1/scans/latest)
+    status, data = http_get(f"{base_http}/api/v1/scans/latest")
+    if status == 200 and isinstance(data, dict) and data.get("status") == "success":
+        checks.append(("Scans REST API (/api/v1/scans/latest)", "PASS", f"Latest tag: {data.get('data', {}).get('identifier')}"))
+    else:
+        checks.append(("Scans REST API (/api/v1/scans/latest)", "FAIL", f"Status: {status}, Data: {data}"))
+
     # Print Results
     print(f"{'CHECK':<45} | {'RESULT':<6} | {'DETAILS'}")
     print("-" * 80)

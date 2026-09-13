@@ -254,6 +254,7 @@ async function refreshDevices() {
   try {
     const res = await fetch("/api/v1/devices");
     devicesCache = await res.json();
+    window.devicesCache = devicesCache;
     renderDeviceList();
     populateSimulatorDevices();
   } catch (e) {
