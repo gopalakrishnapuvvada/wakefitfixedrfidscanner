@@ -98,7 +98,7 @@ async def test_websocket_stream(base_ws_url: str, base_http_url: str) -> bool:
     return len(received_events) > 0 and status == 200
 
 
-def run_smoke_test(host: str = "127.0.0.1", port: int = 8000) -> bool:
+def run_smoke_test(host: str = "127.0.0.1", port: int = 8001) -> bool:
     """Run full automated smoke test suite against running instance."""
     base_http = f"http://{host}:{port}"
     base_ws = f"ws://{host}:{port}"

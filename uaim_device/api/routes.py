@@ -372,7 +372,7 @@ class WebhookConfigRequest(BaseModel):
     enabled: bool = Field(True, description="Enable or disable the webhook forwarder")
     url: str = Field(..., description="Destination webhook URL (e.g. http://127.0.0.1:8000/post_fixed_rfid or external backend)")
     only_tag: bool = Field(True, description="If True, sends {'rfid_tag': '...'} alone")
-    payload_field: str = Field("rfid_tag", description="JSON field name for the RFID tag")
+    payload_field: str = Field("rfidUniqueId", description="JSON field name for the RFID tag")
 
 
 @router.post("/post_fixed_rfid")

@@ -61,7 +61,7 @@ Production-ready, asynchronous Python adapter platform for industrial identifica
   - **Read Cycle Engine**: Tracks discrete reading gate events (Pallet entering -> Tag accumulation -> Summary emission).
   - **Pluggable Event Dispatcher**: Broadcasts concurrently to WebSockets, REST clients, Prometheus, and logs.
 - **Unified Control & Commissioning Center**:
-  - Modern glassmorphic web dashboard at `http://localhost:8000/`.
+  - Modern glassmorphic web dashboard at `http://localhost:8001/`.
   - Live RFID Tag Matrix with antenna & RSSI bars.
   - Transponder Memory Encoder (Tag Writer) for Gen2 EPC rewriting.
   - 2D QR Code & Barcode decoded inspector with one-click copy.
@@ -139,7 +139,7 @@ Connectionadapter/
 python -m uaim_device.main --config config.yaml
 ```
 Access the Control Center in your browser at:
-`http://localhost:8000/`
+`http://localhost:8001/`
 
 ### 2. Dedicated Documentation Guides
 - **SICK RFU630 Fixed RFID Reader Guide**: [`SICK_RFID_READER.md`](file:///d:/UAIM/Projects/Wakefit/FGLabelGenerationSystem/Connectionadapter/SICK_RFID_READER.md)

@@ -80,7 +80,7 @@ class HttpWebhookForwarder(EventConsumer):
         target_url: str = "http://127.0.0.1:8000/post_fixed_rfid",
         enabled: bool = True,
         only_tag: bool = True,
-        payload_field: str = "rfid_tag",
+        payload_field: str = "rfidUniqueId",
         timeout_sec: float = 3.0
     ) -> None:
         self.target_url = target_url
@@ -98,7 +98,8 @@ class HttpWebhookForwarder(EventConsumer):
         tag_value = event.identifier
         if self.only_tag:
             payload = {
-                self.payload_field: tag_value
+                self.payload_field: tag_value,
+                "rfidUniqueId": tag_value,
             }
         else:
             payload = {

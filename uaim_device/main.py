@@ -194,7 +194,7 @@ async def lifespan(app: FastAPI):
                         target_url=wh["url"],
                         enabled=True,
                         only_tag=wh.get("only_tag", True),
-                        payload_field=wh.get("payload_field", "rfid_tag"),
+                        payload_field=wh.get("payload_field", "rfidUniqueId"),
                         timeout_sec=float(wh.get("timeout_sec", 3.0))
                     )
                     GLOBAL_DEVICE_MANAGER.dispatcher.add_consumer(forwarder)
@@ -303,20 +303,20 @@ def main():
     parser = argparse.ArgumentParser(description="UAIM Device Adapter Framework (Real-Time)")
     parser.add_argument("--config", "-c", default=None, help="Path to config.yaml")
     parser.add_argument("--host", default=None, help="Server bind host (default: 0.0.0.0 or from config.yaml)")
-    parser.add_argument("--port", "-p", type=int, default=None, help="Server port (default: 8000 or from config.yaml)")
+    parser.add_argument("--port", "-p", type=int, default=None, help="Server port (default: 8001 or from config.yaml)")
     parser.add_argument("--smoke-test", action="store_true", help="Run automated smoke tests against local server")
     args = parser.parse_args()
 
     if args.smoke_test:
         from uaim_device.smoke_test import run_smoke_test
         target_host = args.host or "127.0.0.1"
-        target_port = args.port or 8000
+        target_port = args.port or 8001
         success = run_smoke_test(host=target_host, port=target_port)
         sys.exit(0 if success else 1)
 
     # Determine host and port
     server_host = args.host or "0.0.0.0"
-    server_port = args.port or 8000
+    server_port = args.port or 8001
 
     cfg_file = find_config_file(args.config)
     if cfg_file and cfg_file.exists():
