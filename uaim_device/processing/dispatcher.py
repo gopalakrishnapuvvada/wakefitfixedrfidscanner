@@ -117,22 +117,44 @@ class HttpWebhookForwarder(EventConsumer):
         asyncio.create_task(self._send_post(self.target_url, payload))
 
     async def _send_post(self, url: str, payload: dict[str, Any]) -> None:
-        try:
-            def _sync_post():
-                data = json.dumps(payload).encode("utf-8")
-                req = urllib.request.Request(
-                    url,
-                    data=data,
-                    headers={"Content-Type": "application/json", "User-Agent": "UAIM-RFID-Adapter"},
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
-                    return resp.status
+        urls_to_try = [url]
+        if "/post_fixed_rfid" in url:
+            base_prefix = url[:url.rfind("/post_fixed_rfid")]
+            for alt in [f"{base_prefix}/api/post_fixed_rfid", f"{base_prefix}/post_fixed_rfid"]:
+                if alt not in urls_to_try:
+                    urls_to_try.append(alt)
 
-            status = await asyncio.to_thread(_sync_post)
-            logger.info(f"Successfully posted RFID tag to {url} (HTTP {status}): {payload}")
-        except Exception as e:
-            logger.warning(f"Failed to post RFID tag to {url}: {e}")
+        last_err = None
+        for target_url in urls_to_try:
+            try:
+                def _sync_post(u: str):
+                    data = json.dumps(payload).encode("utf-8")
+                    req = urllib.request.Request(
+                        u,
+                        data=data,
+                        headers={"Content-Type": "application/json", "User-Agent": "UAIM-RFID-Adapter"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
+                        body = resp.read().decode("utf-8", errors="ignore")
+                        return resp.status, body
+
+                status, body = await asyncio.to_thread(_sync_post, target_url)
+                logger.info(f"✅ Successfully posted RFID tag to {target_url} (HTTP {status}): {payload} | Response: {body}")
+                self.target_url = target_url  # Remember the working URL
+                return
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="ignore")
+                last_err = f"HTTP Error {e.code}: {e.reason} (Response: {err_body})"
+                if e.code != 404:
+                    logger.warning(f"Failed to post RFID tag to {target_url}: {last_err}")
+                    return
+            except Exception as e:
+                last_err = str(e)
+                logger.warning(f"Failed to post RFID tag to {target_url}: {last_err}")
+                return
+
+        logger.warning(f"Failed to post RFID tag to {url} (tested {urls_to_try}): {last_err}")
 
 
 class EventDispatcher:

@@ -150,6 +150,7 @@ async def lifespan(app: FastAPI):
 
     # Load and register configured devices
     raw_devices = load_config_file()
+    handheld_port_counter = 9001
     for d in raw_devices:
         adapter_key = d.get("adapter", "sick_rfu630" if d.get("host") else "handheld")
 
@@ -160,6 +161,14 @@ async def lifespan(app: FastAPI):
         default_model = "RFU630" if is_sick else "RS38 (AS38N8RF4NSG1)"
         default_conn = ConnectionType.ETHERNET if d.get("host") else ConnectionType.HID_KEYBOARD
 
+        resolved_port = d.get("port")
+        if resolved_port is None:
+            if is_sick and d.get("host"):
+                resolved_port = 2112
+            elif not is_sick:
+                resolved_port = handheld_port_counter
+                handheld_port_counter += 1
+
         info = DeviceInfo(
             device_id=d["device_id"],
             name=d.get("name", f"{default_vendor} {default_model}"),
@@ -168,7 +177,7 @@ async def lifespan(app: FastAPI):
             model=d.get("model", default_model),
             connection_type=ConnectionType(d.get("connection_type", default_conn)),
             host=d.get("host"),
-            port=d.get("port", 2112 if is_sick and d.get("host") else None),
+            port=resolved_port,
             station_id=d.get("station_id"),
             enabled=d.get("enabled", True),
             reconnect=ReconnectConfig(**d.get("reconnect", {})),

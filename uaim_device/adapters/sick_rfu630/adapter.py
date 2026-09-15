@@ -128,11 +128,20 @@ class SickRFU630Adapter(DeviceAdapter):
         if self.state == DeviceState.RUNNING:
             return
 
-        if self.state != DeviceState.CONNECTED:
-            await self.connect()
-
         self._is_running = True
         self._shutdown_event.clear()
+
+        # Start supervisor reconnect watcher
+        if self.device_info.reconnect.enabled and (self._reconnect_task is None or self._reconnect_task.done()):
+            self._reconnect_task = asyncio.create_task(self._supervisor_loop(), name=f"SickSupervisor-{self.device_id}")
+
+        if self.state != DeviceState.CONNECTED:
+            try:
+                await self.connect()
+            except Exception as e:
+                logger.warning(f"[{self.device_id}] Initial connection failed: {e}. Reconnect supervisor will continue trying in background.")
+                return
+
         self.state_machine.transition(DeviceState.RUNNING)
         self.health_monitor.on_running()
 
@@ -158,10 +167,6 @@ class SickRFU630Adapter(DeviceAdapter):
         # Start periodic heartbeat task
         if self.config.enable_heartbeat and (self._heartbeat_task is None or self._heartbeat_task.done()):
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(), name=f"SickHeartbeat-{self.device_id}")
-
-        # Start supervisor reconnect watcher
-        if self.device_info.reconnect.enabled and (self._reconnect_task is None or self._reconnect_task.done()):
-            self._reconnect_task = asyncio.create_task(self._supervisor_loop(), name=f"SickSupervisor-{self.device_id}")
 
     async def stop(self) -> None:
         """Pause reading operations without dropping physical connection."""
@@ -444,10 +449,25 @@ class SickRFU630Adapter(DeviceAdapter):
                         await asyncio.sleep(delay)
                         try:
                             await self.connect()
+                            if self.config.auto_start_on_connect and self._connection:
+                                try:
+                                    await self._connection.execute_command(f"sMN {SickColaCommands.METHOD_RUN}")
+                                    logger.info(f"[{self.device_id}] SICK Run mode activated.")
+                                except Exception as e:
+                                    logger.debug(f"[{self.device_id}] Run command notice: {e}")
+                                for event_name in ("ReadResult", "RFIOpData", "LMDscandata"):
+                                    try:
+                                        await self._connection.send_raw(SickColaCommands.subscribe_event(event_name, enable=True))
+                                    except Exception:
+                                        pass
                             # Restart processing loop
                             if self._reader_task is None or self._reader_task.done():
                                 self._reader_task = asyncio.create_task(self._process_telegrams_loop())
-                            logger.info(f"[{self.device_id}] Successfully reconnected to SICK RFU630!")
+                            if self.config.enable_heartbeat and (self._heartbeat_task is None or self._heartbeat_task.done()):
+                                self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+                            self.state_machine.transition(DeviceState.RUNNING)
+                            self.health_monitor.on_running()
+                            logger.info(f"[{self.device_id}] Successfully connected to SICK RFU630 and active in Run mode!")
                             break
                         except Exception as e:
                             logger.warning(f"[{self.device_id}] Reconnect failed: {e}")

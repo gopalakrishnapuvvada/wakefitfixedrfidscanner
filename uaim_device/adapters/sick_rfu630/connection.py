@@ -43,21 +43,37 @@ class SickTcpConnection:
             if self.is_connected:
                 return
 
-            logger.info(f"[{self.device_id}] Connecting TCP socket to {self.host}:{self.port}...")
-            try:
-                self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self.host, self.port),
-                    timeout=self.command_timeout
-                )
-                self._is_connected = True
-                self._decoder.reset()
-                self._read_task = asyncio.create_task(self._socket_read_loop(), name=f"SickReadLoop-{self.device_id}")
-                logger.info(f"[{self.device_id}] Connected successfully to {self.host}:{self.port}")
-            except Exception as e:
-                self._is_connected = False
-                logger.error(f"[{self.device_id}] TCP Connection failed to {self.host}:{self.port}: {e}")
-                await self._cleanup()
-                raise DeviceConnectionError(f"Failed to connect to {self.host}:{self.port}: {e}", device_id=self.device_id)
+            ports_to_try = [self.port]
+            fallback_port = 2111 if self.port == 2112 else (2112 if self.port == 2111 else None)
+            if fallback_port and fallback_port not in ports_to_try:
+                ports_to_try.append(fallback_port)
+
+            last_error: Optional[Exception] = None
+            for target_port in ports_to_try:
+                logger.info(f"[{self.device_id}] Connecting TCP socket to {self.host}:{target_port}...")
+                try:
+                    self._reader, self._writer = await asyncio.wait_for(
+                        asyncio.open_connection(self.host, target_port),
+                        timeout=self.command_timeout
+                    )
+                    self._is_connected = True
+                    self.port = target_port
+                    self._decoder.reset()
+                    self._read_task = asyncio.create_task(self._socket_read_loop(), name=f"SickReadLoop-{self.device_id}")
+                    logger.info(f"[{self.device_id}] Connected successfully to {self.host}:{self.port}")
+                    return
+                except Exception as e:
+                    self._is_connected = False
+                    last_error = e
+                    err_detail = str(e) if str(e) else f"{type(e).__name__} (Timed out after {self.command_timeout}s)"
+                    if len(ports_to_try) > 1 and target_port != ports_to_try[-1]:
+                        logger.warning(f"[{self.device_id}] Connection to {self.host}:{target_port} failed ({err_detail}). Trying alternate port {ports_to_try[-1]}...")
+                    else:
+                        logger.error(f"[{self.device_id}] TCP Connection failed to {self.host}:{target_port}: {err_detail}")
+                    await self._cleanup()
+
+            err_msg = str(last_error) if str(last_error) else f"{type(last_error).__name__} (Timed out)"
+            raise DeviceConnectionError(f"Failed to connect to {self.host} on ports {ports_to_try}: {err_msg}", device_id=self.device_id)
 
     async def disconnect(self) -> None:
         """Gracefully close TCP socket and cancel reader task."""

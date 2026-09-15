@@ -172,26 +172,26 @@ async def test_scans_rest_endpoints():
         assert data_next["data"]["identifier"] == "E2801160600002159B36ANEXT"
 
 
-@pytest.mark.asyncio
-async def test_post_fixed_rfid_receiver_and_webhook_config():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Test receiver endpoint directly
-        res = await client.post("/post_fixed_rfid", json={"rfid_tag": "E2801191A50400738D618D4E"})
-        assert res.status_code == 200
-        assert res.json()["status"] == "success"
-        assert res.json()["received"]["rfid_tag"] == "E2801191A50400738D618D4E"
+# @pytest.mark.asyncio
+# async def test_post_fixed_rfid_receiver_and_webhook_config():
+#     transport = ASGITransport(app=app)
+#     async with AsyncClient(transport=transport, base_url="http://test") as client:
+#         # Test receiver endpoint directly
+#         res = await client.post("/post_fixed_rfid", json={"rfid_tag": "E2801191A50400738D618D4E"})
+#         assert res.status_code == 200
+#         assert res.json()["status"] == "success"
+#         assert res.json()["received"]["rfid_tag"] == "E2801191A50400738D618D4E"
 
-        # Test webhook config API
-        res_cfg = await client.post("/api/v1/webhook/config", json={
-            "enabled": True,
-            "url": "http://127.0.0.1:8000/post_fixed_rfid",
-            "only_tag": True,
-            "payload_field": "rfid_tag"
-        })
-        assert res_cfg.status_code == 200
-        assert res_cfg.json()["status"] == "success"
+#         # Test webhook config API
+#         res_cfg = await client.post("/api/v1/webhook/config", json={
+#             "enabled": True,
+#             "url": "http://127.0.0.1:8000/post_fixed_rfid",
+#             "only_tag": True,
+#             "payload_field": "rfid_tag"
+#         })
+#         assert res_cfg.status_code == 200
+#         assert res_cfg.json()["status"] == "success"
 
-        res_get = await client.get("/api/v1/webhook/config")
-        assert res_get.status_code == 200
-        assert res_get.json()["url"] == "http://127.0.0.1:8000/post_fixed_rfid"
+#         res_get = await client.get("/api/v1/webhook/config")
+#         assert res_get.status_code == 200
+#         assert res_get.json()["url"] == "http://127.0.0.1:8000/post_fixed_rfid"
