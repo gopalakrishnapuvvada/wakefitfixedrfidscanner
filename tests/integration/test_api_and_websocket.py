@@ -4,7 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from uaim_device.core.manager import GLOBAL_DEVICE_MANAGER
 from uaim_device.core.models import (
-    ConnectionType,
+    ConnectionType, 
     DeduplicationConfig,
     DeviceInfo,
     DeviceType,
